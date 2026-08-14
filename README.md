@@ -1,38 +1,64 @@
-# APP窗口容器 修复版
+# APP窗口容器 三区域诊断版
 
-版本：1.1
+针对 6480×960 超长车机屏幕。
 
-## 本次修复
+本版本预设：
 
-- 修复 Kotlin stdlib / kotlin-stdlib-jdk7 / jdk8 重复类导致的构建失败
-- Android Gradle Plugin 更新到 8.6.1
-- compileSdk 35
-- Java 17
-- Gradle 8.7
-- 加入 GitHub Actions `build.yml`
-- 自动生成 `APP窗口容器.apk`
+左区域：
+X=0
+Y=0
+W=2032
+H=960
 
-## GitHub 打包
+中区域：
+X=2032
+Y=0
+W=2032
+H=960
 
-把整个工程上传到 GitHub。
+右区域：
+X=4064
+Y=0
+W=2416
+H=960
 
-然后：
+注意：三个区域中的前两个按照你提供的 2032×960 设置，右侧使用剩余的 2416 像素。
 
-Actions
-→ 构建 APP窗口容器 APK
-→ Run workflow
+## 测试
 
-完成后：
+1. 安装 APK。
+2. 点击“＋ 添加 APP”。
+3. 选择一个普通可启动 APP。
+4. 点击快捷栏里的 APP，确认已经选中。
+5. 点击“左区域 / 中区域 / 右区域”。
+6. 观察目标 APP 实际位置。
+7. 把实际结果告诉我。
 
-Actions
-→ 对应运行记录
-→ Artifacts
-→ APP窗口容器
+## 目的
 
-## 注意
+本版本重点测试车机 WindowManager 是否真正执行：
 
-`ActivityOptions.setLaunchBounds()` 能否真正限制第三方 APP 的窗口，
-取决于车机 Android WindowManager 是否允许自由窗口/多窗口。
+ActivityOptions.setLaunchBounds()
 
-如果普通 Android 12 环境忽略这个区域，下一步需要针对车机的系统权限、
-TaskView/ActivityView 或厂商窗口接口进行适配。
+如果三个区域按钮都不能把目标 APP 限制在指定矩形内，就不能继续依赖普通 launchBounds。
+
+下一步需要根据实际车机情况研究：
+
+- TaskView
+- ActivityView
+- 多 Display
+- OEM WindowManager
+- 系统签名权限
+- 车机厂商自己的多区域 API
+
+本工程已经包含 GitHub Actions：
+
+.github/workflows/build.yml
+
+GitHub：
+
+Actions → 构建 APP窗口容器 三区域诊断版 → Run workflow
+
+完成后下载 Artifact：
+
+APP窗口容器_三区域诊断版.apk
