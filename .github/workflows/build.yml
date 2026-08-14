@@ -1,4 +1,4 @@
-name: 构建 APP窗口容器 APK
+name: 构建 APP窗口容器 三区域诊断版
 
 on:
   workflow_dispatch:
@@ -6,7 +6,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -23,29 +22,24 @@ jobs:
       - name: 安装 Android SDK
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: 设置 Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: 清理工程
-        run: gradle clean --no-daemon
-
-      - name: 编译 Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: 编译
+        run: gradle clean assembleDebug --no-daemon --stacktrace
 
       - name: 准备 APK
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/debug/app-debug.apk "output/APP窗口容器.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "output/APP窗口容器_三区域诊断版.apk"
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: APP窗口容器
-          path: output/APP窗口容器.apk
+          name: APP窗口容器_三区域诊断版
+          path: output/APP窗口容器_三区域诊断版.apk
           if-no-files-found: error
