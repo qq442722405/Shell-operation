@@ -1,8 +1,6 @@
 package com.example.appwindowcontainer;
 
-import android.app.Activity;
 import android.app.ActivityOptions;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
@@ -10,8 +8,10 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.os.Handler;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
-import android.view.View;
 import android.view.Window;
 import android.widget.Button;
 import android.widget.EditText;
@@ -37,10 +37,8 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout shortcutBar;
     private TextView emptyText;
     private SharedPreferences prefs;
-    private String currentPackage = null;
+    private String currentPackage;
 
-    // 显示区域相对于当前 Activity 内容区的比例。
-    // 如果车机支持 freeform/launchBounds，外部 APP 会尝试使用这个矩形启动。
     private float topRatio = 0.08f;
     private float bottomRatio = 0.82f;
     private float leftRatio = 0.02f;
@@ -54,7 +52,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int dp(float v) {
-        return (int)(v * getResources().getDisplayMetrics().density + 0.5f);
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
 
     private TextView text(String s, float size) {
@@ -66,16 +64,26 @@ public class MainActivity extends AppCompatActivity {
         return t;
     }
 
+    private Button button(String s) {
+        Button b = new Button(this);
+        b.setText(s);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(14);
+        b.setAllCaps(false);
+        b.setBackgroundResource(R.drawable.bg_button);
+        b.setPadding(dp(6), 0, dp(6), 0);
+        return b;
+    }
+
     private void buildUi() {
         Window w = getWindow();
-        w.setStatusBarColor(Color.rgb(15,17,20));
-        w.setNavigationBarColor(Color.rgb(15,17,20));
+        w.setStatusBarColor(Color.rgb(15, 17, 20));
+        w.setNavigationBarColor(Color.rgb(15, 17, 20));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.rgb(15,17,20));
+        root.setBackgroundColor(Color.rgb(15, 17, 20));
 
-        // 顶部
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(dp(18), dp(8), dp(18), dp(8));
@@ -87,10 +95,8 @@ public class MainActivity extends AppCompatActivity {
         Button area = button("显示区域");
         area.setOnClickListener(v -> showAreaDialog());
         top.addView(area, new LinearLayout.LayoutParams(dp(120), dp(46)));
-
         root.addView(top);
 
-        // 中间显示区域
         LinearLayout center = new LinearLayout(this);
         center.setGravity(Gravity.CENTER);
         center.setOrientation(LinearLayout.VERTICAL);
@@ -99,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout frame = new LinearLayout(this);
         frame.setGravity(Gravity.CENTER);
         frame.setOrientation(LinearLayout.VERTICAL);
-        frame.setBackgroundResource(com.example.appwindowcontainer.R.drawable.bg_card);
+        frame.setBackgroundResource(R.drawable.bg_card);
 
         emptyText = text("＋\n点击“＋ 添加 APP”\n启动应用", 22);
         emptyText.setOnClickListener(v -> showAppList());
@@ -107,17 +113,16 @@ public class MainActivity extends AppCompatActivity {
 
         center.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        // 右下角控制按钮
         LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         controls.setPadding(0, dp(6), dp(2), 0);
 
         Button back = button("↩ 返回");
         back.setOnClickListener(v -> {
-            Intent i = new Intent(Intent.ACTION_MAIN);
-            i.addCategory(Intent.CATEGORY_HOME);
+            Intent home = new Intent(Intent.ACTION_MAIN);
+            home.addCategory(Intent.CATEGORY_HOME);
             try {
-                startActivity(i);
+                startActivity(home);
             } catch (Exception e) {
                 Toast.makeText(this, "返回失败", Toast.LENGTH_SHORT).show();
             }
@@ -132,7 +137,6 @@ public class MainActivity extends AppCompatActivity {
 
         root.addView(center, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        // 底部快捷栏
         shortcutBar = new LinearLayout(this);
         shortcutBar.setGravity(Gravity.CENTER_VERTICAL);
         shortcutBar.setPadding(dp(10), dp(8), dp(10), dp(8));
@@ -140,17 +144,6 @@ public class MainActivity extends AppCompatActivity {
 
         setContentView(root);
         rebuildShortcuts();
-    }
-
-    private Button button(String s) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(14);
-        b.setAllCaps(false);
-        b.setBackgroundResource(com.example.appwindowcontainer.R.drawable.bg_button);
-        b.setPadding(dp(6), 0, dp(6), 0);
-        return b;
     }
 
     private Set<String> getSavedPackages() {
@@ -192,8 +185,8 @@ public class MainActivity extends AppCompatActivity {
     private void showAppList() {
         PackageManager pm = getPackageManager();
         List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
-
         List<ApplicationInfo> launchable = new ArrayList<>();
+
         for (ApplicationInfo ai : apps) {
             Intent launch = pm.getLaunchIntentForPackage(ai.packageName);
             if (launch != null && !ai.packageName.equals(getPackageName())) {
@@ -232,8 +225,8 @@ public class MainActivity extends AppCompatActivity {
         Runnable refresh = () -> {
             items.removeAllViews();
             String q = search.getText().toString().trim().toLowerCase();
-
             int count = 0;
+
             for (ApplicationInfo ai : launchable) {
                 String label = pm.getApplicationLabel(ai).toString();
                 if (!q.isEmpty() && !label.toLowerCase().contains(q)) continue;
@@ -245,14 +238,19 @@ public class MainActivity extends AppCompatActivity {
                     dialog.dismiss();
                     launchPackage(ai.packageName);
                 });
+
                 items.addView(b, new LinearLayout.LayoutParams(-1, dp(48)));
                 count++;
                 if (count >= 12) break;
             }
         };
 
-        search.addTextChangedListener(new SimpleTextWatcher() {
-            @Override public void afterTextChanged(android.text.Editable s) { refresh.run(); }
+        search.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            public void afterTextChanged(Editable s) {
+                refresh.run();
+            }
         });
 
         refresh.run();
@@ -286,22 +284,13 @@ public class MainActivity extends AppCompatActivity {
         currentPackage = pkg;
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
-        /*
-         * 核心：
-         * Android 允许通过 ActivityOptions.setLaunchBounds() 提供任务初始矩形。
-         * 在支持 freeform / OEM 车机窗口管理的系统上，这可以让目标 APP
-         * 在指定区域打开。
-         *
-         * 普通 Android 12 手机/部分车机可能忽略 launchBounds，
-         * 这是系统 WindowManager 的限制，并非普通 APP 能强制绕过。
-         */
         int sw = getResources().getDisplayMetrics().widthPixels;
         int sh = getResources().getDisplayMetrics().heightPixels;
 
-        int l = (int)(sw * leftRatio);
-        int t = (int)(sh * topRatio);
-        int r = (int)(sw * rightRatio);
-        int b = (int)(sh * bottomRatio);
+        int l = (int) (sw * leftRatio);
+        int t = (int) (sh * topRatio);
+        int r = (int) (sw * rightRatio);
+        int b = (int) (sh * bottomRatio);
 
         Rect bounds = new Rect(l, t, r, b);
         ActivityOptions options = ActivityOptions.makeBasic();
@@ -309,8 +298,7 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             startActivity(intent, options.toBundle());
-            emptyText.setText("正在运行：\n" + getAppName(pkg) +
-                    "\n\n如果目标 APP 没有进入框内，请检查车机是否支持自由窗口/任务窗口。");
+            emptyText.setText("正在运行：\n" + getAppName(pkg));
         } catch (Exception e) {
             try {
                 startActivity(intent);
@@ -331,35 +319,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void closeCurrent() {
-        if (currentPackage == null) {
-            emptyText.setText("＋\n点击“＋ 添加 APP”\n启动应用");
-            return;
-        }
-
-        /*
-         * 普通第三方 APP 无法被另一个普通 APP 强制 finish。
-         * 这里通过返回任务主页，让容器重新成为前台。
-         * 对拥有系统权限的车机版本，可进一步替换为 ActivityTaskManager
-         * 的系统级关闭实现。
-         */
-        try {
-            Intent home = new Intent(Intent.ACTION_MAIN);
-            home.addCategory(Intent.CATEGORY_HOME);
-            startActivity(home);
-
-            new android.os.Handler().postDelayed(() -> {
-                try {
-                    Intent self = new Intent(this, MainActivity.class);
-                    self.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                    startActivity(self);
-                    emptyText.setText("＋\n点击“＋ 添加 APP”\n启动应用");
-                } catch (Exception ignored) {}
-            }, 150);
-        } catch (Exception e) {
-            emptyText.setText("＋\n点击“＋ 添加 APP”\n启动应用");
-        }
-
         currentPackage = null;
+        emptyText.setText("＋\n点击“＋ 添加 APP”\n启动应用");
+
+        Intent self = new Intent(this, MainActivity.class);
+        self.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+
+        try {
+            startActivity(self);
+        } catch (Exception ignored) {}
     }
 
     private void showAreaDialog() {
@@ -367,10 +335,10 @@ public class MainActivity extends AppCompatActivity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(8), dp(20), dp(8));
 
-        EditText top = numberInput(String.valueOf((int)(topRatio * 100)));
-        EditText bottom = numberInput(String.valueOf((int)(bottomRatio * 100)));
-        EditText left = numberInput(String.valueOf((int)(leftRatio * 100)));
-        EditText right = numberInput(String.valueOf((int)(rightRatio * 100)));
+        EditText top = numberInput(String.valueOf((int) (topRatio * 100)));
+        EditText bottom = numberInput(String.valueOf((int) (bottomRatio * 100)));
+        EditText left = numberInput(String.valueOf((int) (leftRatio * 100)));
+        EditText right = numberInput(String.valueOf((int) (rightRatio * 100)));
 
         addField(box, "上边界 %", top);
         addField(box, "下边界 %", bottom);
@@ -411,10 +379,5 @@ public class MainActivity extends AppCompatActivity {
         t.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
         box.addView(t, new LinearLayout.LayoutParams(-1, dp(30)));
         box.addView(input, new LinearLayout.LayoutParams(-1, dp(48)));
-    }
-
-    public static abstract class SimpleTextWatcher implements android.text.TextWatcher {
-        public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-        public void onTextChanged(CharSequence s, int st, int before, int count) {}
     }
 }

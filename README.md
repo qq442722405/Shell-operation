@@ -1,48 +1,38 @@
-# APP窗口容器
+# APP窗口容器 修复版
 
-这是一个 Android 12+ 车机方向的第一版 APP 窗口容器工程。
+版本：1.1
 
-## 功能
+## 本次修复
 
-- 横屏运行
-- 中间 APP 显示区域
-- 右下角“返回 / 关闭”
-- 底部 APP 快捷键
-- “＋ 添加 APP”
-- 自动读取可启动的已安装 APP
-- 搜索并添加 APP
-- 长按快捷键可以删除
-- 显示区域可以设置上下左右百分比
-- 使用 `ActivityOptions.setLaunchBounds()` 尝试把外部 APP 启动到指定矩形
-
-## 重要限制
-
-普通 Android 第三方 APP 没有权限把另一个独立 APP 的 Activity 真正嵌入自己的 View 中。
-
-本工程采用 Android 的 `launchBounds` 机制作为第一版窗口定位方案。
-是否真正生效取决于车机 WindowManager 是否支持自由窗口 / 多窗口 / OEM 任务窗口。
-
-如果目标车机是定制 Android 12，并且允许系统级 TaskView/ActivityView 或厂商窗口 API，
-可以在这个工程基础上继续改成真正的“APP嵌入区域”。
-
-## 编译
-
-Android Studio 打开本目录即可。
-
-建议：
-- JDK 17
-- Android Gradle Plugin 8.5.2
-- Gradle 8.7+
+- 修复 Kotlin stdlib / kotlin-stdlib-jdk7 / jdk8 重复类导致的构建失败
+- Android Gradle Plugin 更新到 8.6.1
 - compileSdk 35
-- minSdk 26
+- Java 17
+- Gradle 8.7
+- 加入 GitHub Actions `build.yml`
+- 自动生成 `APP窗口容器.apk`
 
-## GitHub Actions
+## GitHub 打包
 
-可以直接用 Android Studio 生成 Gradle wrapper 后提交到 GitHub。
-如果仓库已有 wrapper，可执行：
+把整个工程上传到 GitHub。
 
-`./gradlew assembleDebug`
+然后：
 
-生成：
+Actions
+→ 构建 APP窗口容器 APK
+→ Run workflow
 
-`app/build/outputs/apk/debug/app-debug.apk`
+完成后：
+
+Actions
+→ 对应运行记录
+→ Artifacts
+→ APP窗口容器
+
+## 注意
+
+`ActivityOptions.setLaunchBounds()` 能否真正限制第三方 APP 的窗口，
+取决于车机 Android WindowManager 是否允许自由窗口/多窗口。
+
+如果普通 Android 12 环境忽略这个区域，下一步需要针对车机的系统权限、
+TaskView/ActivityView 或厂商窗口接口进行适配。
