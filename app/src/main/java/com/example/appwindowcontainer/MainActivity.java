@@ -3,7 +3,8 @@ package com.example.appwindowcontainer;
 import android.app.ActivityOptions;
 import android.content.*;
 import android.content.pm.*;
-import android.graphics.*;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
@@ -12,106 +13,905 @@ import org.json.*;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
-    static final String PREF="app_window_manager", APPS="apps", PRESETS="presets";
-    SharedPreferences sp; LinearLayout presetList, appList; TextView status;
-    String selectedPkg, selectedName; int topSafe,bottomSafe;
-    ArrayList<Preset> presets=new ArrayList<>(); ArrayList<AppItem> apps=new ArrayList<>();
+
+    static final String PREF="container_prefs";
+    static final String APPS="apps";
+    static final String PRESETS="presets";
+
+    // 车机每个区域固定为 2032 × 960
+    static final int AREA_WIDTH = 2032;
+    static final int AREA_HEIGHT = 960;
+
+    SharedPreferences prefs;
+    LinearLayout presetRow, appGrid;
+    TextView info;
+    String selectedPackage = null;
+    String selectedName = null;
+
+    int containerDpi = 160;
+    int topBlank = 0;
+    int bottomBlank = 0;
+
+    ArrayList<AppItem> apps = new ArrayList<>();
+    ArrayList<Preset> presets = new ArrayList<>();
+
+    static class AppItem {
+        String pkg;
+        String name;
+        AppItem(String p,String n){pkg=p;name=n;}
+    }
 
     static class Preset {
-        String name; int x,y,w,h,dpi;
-        Preset(String n,int x,int y,int w,int h,int dpi){this.name=n;this.x=x;this.y=y;this.w=w;this.h=h;this.dpi=dpi;}
-        Rect bounds(){return new Rect(x,y,x+w,y+h);}
-        String summary(){return "X "+x+"  Y "+y+"   "+w+"×"+h+"   DPI "+dpi;}
-    }
-    static class AppItem {String pkg,name; AppItem(String p,String n){pkg=p;name=n;}}
+        String name;
+        int x,y,w,h,dpi;
 
-    int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
-    TextView tv(String s,float z){TextView t=new TextView(this);t.setText(s);t.setTextColor(Color.WHITE);t.setTextSize(z);t.setGravity(Gravity.CENTER_VERTICAL);return t;}
-    Button bt(String s){Button b=new Button(this);b.setText(s);b.setTextColor(Color.WHITE);b.setTextSize(14);b.setAllCaps(false);b.setBackgroundResource(com.example.appwindowcontainer.R.drawable.btn);return b;}
-    EditText field(String hint,String val){EditText e=new EditText(this);e.setHint(hint);e.setText(val);e.setTextColor(Color.WHITE);e.setHintTextColor(Color.GRAY);e.setSingleLine(true);e.setInputType(2);return e;}
-    int num(EditText e,int d){try{return Integer.parseInt(e.getText().toString().trim());}catch(Exception x){return d;}}
-
-    @Override public void onCreate(Bundle b){super.onCreate(b);sp=getSharedPreferences(PREF,0);load();ui();}
-
-    void load(){
-        topSafe=sp.getInt("topSafe",0);bottomSafe=sp.getInt("bottomSafe",0);
-        try{JSONArray a=new JSONArray(sp.getString(APPS,"[]"));PackageManager pm=getPackageManager();
-            for(int i=0;i<a.length();i++){String p=a.getString(i);try{ApplicationInfo x=pm.getApplicationInfo(p,0);apps.add(new AppItem(p,pm.getApplicationLabel(x).toString()));}catch(Exception ignored){}}}catch(Exception ignored){}
-        try{JSONArray a=new JSONArray(sp.getString(PRESETS,"[]"));for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);presets.add(new Preset(o.getString("name"),o.getInt("x"),o.getInt("y"),o.getInt("w"),o.getInt("h"),o.optInt("dpi",160)));}}catch(Exception ignored){}
-        if(presets.isEmpty()){presets.add(new Preset("默认",0,topSafe,2032,Math.max(1,960-topSafe-bottomSafe),160));savePresets();}
-    }
-    void saveApps(){JSONArray a=new JSONArray();for(AppItem x:apps)a.put(x.pkg);sp.edit().putString(APPS,a.toString()).apply();}
-    void savePresets(){JSONArray a=new JSONArray();try{for(Preset p:presets){JSONObject o=new JSONObject();o.put("name",p.name);o.put("x",p.x);o.put("y",p.y);o.put("w",p.w);o.put("h",p.h);o.put("dpi",p.dpi);a.put(o);}}catch(Exception ignored){}sp.edit().putString(PRESETS,a.toString()).apply();}
-
-    void ui(){
-        getWindow().setStatusBarColor(Color.rgb(16,18,22));getWindow().setNavigationBarColor(Color.rgb(16,18,22));
-        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(10),dp(8),dp(10),dp(8));root.setBackgroundColor(Color.rgb(16,18,22));
-        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title=tv("APP窗口容器 · 自定义窗口预设",19);title.setTypeface(null,1);head.addView(title,new LinearLayout.LayoutParams(0,dp(48),1));
-        Button set=bt("⚙ 设置");set.setOnClickListener(v->settings());head.addView(set,new LinearLayout.LayoutParams(dp(78),dp(46)));
-        Button add=bt("＋ 添加 APP");add.setOnClickListener(v->chooseApp());head.addView(add,new LinearLayout.LayoutParams(dp(112),dp(46)));root.addView(head);
-        LinearLayout safe=new LinearLayout(this);safe.setPadding(dp(4),dp(4),dp(4),dp(4));safe.setBackgroundResource(R.drawable.bg);
-        TextView st=tv("上方空白 "+topSafe+" px   ·   下方空白 "+bottomSafe+" px",13);safe.addView(st,new LinearLayout.LayoutParams(0,dp(42),1));
-        Button se=bt("修改");se.setOnClickListener(v->settings());safe.addView(se,new LinearLayout.LayoutParams(dp(70),dp(42)));root.addView(safe);
-        TextView tip=tv("先点击 APP，再点击上方预设即可按该预设启动。预设长按可编辑/删除。",13);tip.setPadding(dp(8),dp(8),dp(8),dp(8));root.addView(tip);
-        TextView pt=tv("窗口预设",16);pt.setTypeface(null,1);root.addView(pt,new LinearLayout.LayoutParams(-1,dp(34)));
-        ScrollView ps=new ScrollView(this);presetList=new LinearLayout(this);presetList.setOrientation(LinearLayout.HORIZONTAL);ps.addView(presetList);root.addView(ps,new LinearLayout.LayoutParams(-1,dp(82)));
-        TextView at=tv("已添加 APP",16);at.setTypeface(null,1);root.addView(at,new LinearLayout.LayoutParams(-1,dp(34)));
-        ScrollView as=new ScrollView(this);appList=new LinearLayout(this);appList.setOrientation(LinearLayout.VERTICAL);as.addView(appList);root.addView(as,new LinearLayout.LayoutParams(-1,0,1));
-        status=tv("",13);status.setPadding(dp(8),dp(5),dp(8),dp(5));status.setBackgroundResource(R.drawable.bg);root.addView(status,new LinearLayout.LayoutParams(-1,dp(72)));
-        setContentView(root);refresh();
+        Preset(String n,int x,int y,int w,int h,int dpi){
+            this.name=n;
+            this.x=x;
+            this.y=y;
+            this.w=w;
+            this.h=h;
+            this.dpi=dpi;
+        }
     }
 
-    void refresh(){refreshPresets();refreshApps();status.setText(selectedPkg==null?"未选择 APP：先选择 APP，再点击窗口预设。":"当前 APP："+selectedName+"\n请点击窗口预设启动。");}
+    int dp(int v){
+        return (int)(v * getResources().getDisplayMetrics().density + .5f);
+    }
+
+    TextView text(String s,float size){
+        TextView t=new TextView(this);
+        t.setText(s);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(size);
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        return t;
+    }
+
+    Button button(String s){
+        Button b=new Button(this);
+        b.setText(s);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(14);
+        b.setAllCaps(false);
+        b.setBackgroundResource(R.drawable.button);
+        return b;
+    }
+
+    EditText field(String hint,String value){
+        EditText e=new EditText(this);
+        e.setHint(hint);
+        e.setText(value);
+        e.setTextColor(Color.WHITE);
+        e.setHintTextColor(Color.GRAY);
+        e.setSingleLine(true);
+        e.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        return e;
+    }
+
+    int number(EditText e,int fallback){
+        try{return Integer.parseInt(e.getText().toString().trim());}
+        catch(Exception ex){return fallback;}
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState){
+        super.onCreate(savedInstanceState);
+        prefs=getSharedPreferences(PREF,0);
+        loadData();
+        buildUI();
+    }
+
+    void loadData(){
+        topBlank=prefs.getInt("topBlank",0);
+        bottomBlank=prefs.getInt("bottomBlank",0);
+        containerDpi=prefs.getInt("containerDpi",160);
+
+        try{
+            JSONArray a=new JSONArray(prefs.getString(APPS,"[]"));
+            PackageManager pm=getPackageManager();
+
+            for(int i=0;i<a.length();i++){
+                String p=a.getString(i);
+                try{
+                    ApplicationInfo ai=pm.getApplicationInfo(p,0);
+                    apps.add(new AppItem(
+                            p,
+                            pm.getApplicationLabel(ai).toString()
+                    ));
+                }catch(Exception ignored){}
+            }
+        }catch(Exception ignored){}
+
+        try{
+            JSONArray a=new JSONArray(prefs.getString(PRESETS,"[]"));
+
+            for(int i=0;i<a.length();i++){
+                JSONObject o=a.getJSONObject(i);
+
+                presets.add(new Preset(
+                        o.getString("name"),
+                        o.getInt("x"),
+                        o.getInt("y"),
+                        o.getInt("w"),
+                        o.getInt("h"),
+                        o.optInt("dpi",160)
+                ));
+            }
+        }catch(Exception ignored){}
+
+        if(presets.isEmpty()){
+            presets.add(new Preset(
+                    "区域默认",
+                    0,
+                    topBlank,
+                    AREA_WIDTH,
+                    Math.max(1,AREA_HEIGHT-topBlank-bottomBlank),
+                    containerDpi
+            ));
+            savePresets();
+        }
+    }
+
+    void saveApps(){
+        JSONArray a=new JSONArray();
+
+        for(AppItem x:apps)
+            a.put(x.pkg);
+
+        prefs.edit().putString(APPS,a.toString()).apply();
+    }
+
+    void savePresets(){
+        JSONArray a=new JSONArray();
+
+        try{
+            for(Preset p:presets){
+                JSONObject o=new JSONObject();
+
+                o.put("name",p.name);
+                o.put("x",p.x);
+                o.put("y",p.y);
+                o.put("w",p.w);
+                o.put("h",p.h);
+                o.put("dpi",p.dpi);
+
+                a.put(o);
+            }
+        }catch(Exception ignored){}
+
+        prefs.edit().putString(PRESETS,a.toString()).apply();
+    }
+
+    void buildUI(){
+
+        getWindow().setStatusBarColor(Color.BLACK);
+        getWindow().setNavigationBarColor(Color.BLACK);
+
+        LinearLayout root=new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.BLACK);
+        root.setPadding(dp(12),dp(6),dp(12),dp(6));
+
+        // 顶部
+        LinearLayout header=new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView title=text("APP 窗口容器",20);
+        title.setTypeface(null,1);
+
+        header.addView(
+                title,
+                new LinearLayout.LayoutParams(0,dp(50),1)
+        );
+
+        Button settings=button("⚙ 设置");
+        settings.setOnClickListener(v->showSettings());
+
+        header.addView(
+                settings,
+                new LinearLayout.LayoutParams(dp(90),dp(46))
+        );
+
+        root.addView(header);
+
+        // 预设
+        TextView pt=text("窗口预设",17);
+        pt.setTypeface(null,1);
+
+        root.addView(
+                pt,
+                new LinearLayout.LayoutParams(-1,dp(34))
+        );
+
+        ScrollView presetScroll=new ScrollView(this);
+        presetScroll.setHorizontalScrollBarEnabled(false);
+
+        presetRow=new LinearLayout(this);
+        presetRow.setOrientation(LinearLayout.HORIZONTAL);
+
+        presetScroll.addView(presetRow);
+
+        root.addView(
+                presetScroll,
+                new LinearLayout.LayoutParams(-1,dp(82))
+        );
+
+        // APP区域标题
+        LinearLayout appTitle=new LinearLayout(this);
+        appTitle.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView at=text("已添加 APP",17);
+        at.setTypeface(null,1);
+
+        appTitle.addView(
+                at,
+                new LinearLayout.LayoutParams(0,dp(42),1)
+        );
+
+        Button add=button("＋ 添加 APP");
+        add.setOnClickListener(v->chooseApp());
+
+        appTitle.addView(
+                add,
+                new LinearLayout.LayoutParams(dp(120),dp(42))
+        );
+
+        root.addView(appTitle);
+
+        // APP小方格
+        ScrollView appScroll=new ScrollView(this);
+
+        appGrid=new LinearLayout(this);
+        appGrid.setOrientation(LinearLayout.HORIZONTAL);
+
+        appScroll.addView(appGrid);
+
+        root.addView(
+                appScroll,
+                new LinearLayout.LayoutParams(-1,0,1)
+        );
+
+        info=text("",14);
+        info.setTextColor(Color.WHITE);
+        info.setPadding(dp(10),dp(8),dp(10),dp(8));
+
+        root.addView(
+                info,
+                new LinearLayout.LayoutParams(-1,dp(68))
+        );
+
+        setContentView(root);
+
+        refresh();
+    }
+
+    void refresh(){
+        refreshPresets();
+        refreshApps();
+
+        if(selectedPackage==null){
+            info.setText(
+                    "请选择 APP，然后点击上方窗口预设启动"
+            );
+        }else{
+            info.setText(
+                    "已选择： "+selectedName+
+                    "    → 点击窗口预设启动"
+            );
+        }
+    }
+
     void refreshPresets(){
-        presetList.removeAllViews();
-        for(int i=0;i<presets.size();i++){final int ix=i;Preset p=presets.get(i);Button b=bt(p.name+"\n"+p.summary());
-            b.setOnClickListener(v->{if(selectedPkg==null){Toast.makeText(this,"请先选择 APP",0).show();return;}launch(p);});
-            b.setOnLongClickListener(v->{presetMenu(ix);return true;});presetList.addView(b,new LinearLayout.LayoutParams(dp(270),dp(68)));}
-        Button add=bt("＋\n新建预设");add.setOnClickListener(v->editPreset(-1));presetList.addView(add,new LinearLayout.LayoutParams(dp(120),dp(68)));
+
+        presetRow.removeAllViews();
+
+        for(int i=0;i<presets.size();i++){
+
+            final int index=i;
+            Preset p=presets.get(i);
+
+            Button b=button(
+                    p.name+
+                    "\n"+
+                    p.w+" × "+p.h+
+                    "   DPI "+p.dpi
+            );
+
+            b.setOnClickListener(v->{
+
+                if(selectedPackage==null){
+                    Toast.makeText(
+                            this,
+                            "请先选择 APP",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                    return;
+                }
+
+                launchApp(p);
+            });
+
+            b.setOnLongClickListener(v->{
+                presetMenu(index);
+                return true;
+            });
+
+            presetRow.addView(
+                    b,
+                    new LinearLayout.LayoutParams(
+                            dp(250),
+                            dp(70)
+                    )
+            );
+        }
+
+        Button add=button("＋ 新建预设");
+        add.setOnClickListener(v->editPreset(-1));
+
+        presetRow.addView(
+                add,
+                new LinearLayout.LayoutParams(
+                        dp(120),
+                        dp(70)
+                )
+        );
     }
+
     void refreshApps(){
-        appList.removeAllViews();
-        if(apps.isEmpty()){TextView e=tv("还没有添加 APP\n点击右上角“＋ 添加 APP”",15);e.setGravity(17);appList.addView(e,new LinearLayout.LayoutParams(-1,dp(100)));return;}
-        for(AppItem a:apps){Button b=bt((a.pkg.equals(selectedPkg)?"✓ ":"")+a.name+"\n"+a.pkg);b.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);
-            b.setOnClickListener(v->{selectedPkg=a.pkg;selectedName=a.name;refreshApps();status.setText("已选择："+a.name+"\n现在点击窗口预设启动。");});
-            b.setOnLongClickListener(v->{new AlertDialog.Builder(this).setTitle(a.name).setMessage("长按删除此 APP 快捷方式。").setNegativeButton("取消",null).setPositiveButton("删除",(d,w)->{apps.remove(a);if(a.pkg.equals(selectedPkg)){selectedPkg=null;selectedName=null;}saveApps();refresh();}).show();return true;});
-            appList.addView(b,new LinearLayout.LayoutParams(-1,dp(62)));}
+
+        appGrid.removeAllViews();
+
+        for(AppItem item:apps){
+
+            LinearLayout card=new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setGravity(Gravity.CENTER);
+            card.setPadding(dp(5),dp(5),dp(5),dp(5));
+
+            card.setBackgroundResource(
+                    item.pkg.equals(selectedPackage)
+                            ? R.drawable.card_selected
+                            : R.drawable.card
+            );
+
+            ImageView icon=new ImageView(this);
+
+            try{
+                ApplicationInfo ai=
+                        getPackageManager()
+                                .getApplicationInfo(item.pkg,0);
+
+                Drawable d=
+                        getPackageManager()
+                                .getApplicationIcon(ai);
+
+                icon.setImageDrawable(d);
+
+            }catch(Exception ignored){}
+
+            card.addView(
+                    icon,
+                    new LinearLayout.LayoutParams(
+                            dp(46),
+                            dp(46)
+                    )
+            );
+
+            TextView name=text(item.name,12);
+            name.setGravity(Gravity.CENTER);
+            name.setMaxLines(1);
+
+            card.addView(
+                    name,
+                    new LinearLayout.LayoutParams(
+                            dp(90),
+                            dp(30)
+                    )
+            );
+
+            card.setOnClickListener(v->{
+                selectedPackage=item.pkg;
+                selectedName=item.name;
+                refreshApps();
+
+                info.setText(
+                        "已选择： "+item.name+
+                        "    → 点击窗口预设启动"
+                );
+            });
+
+            card.setOnLongClickListener(v->{
+                deleteApp(item);
+                return true;
+            });
+
+            appGrid.addView(
+                    card,
+                    new LinearLayout.LayoutParams(
+                            dp(100),
+                            dp(88)
+                    )
+            );
+        }
+
+        if(apps.isEmpty()){
+
+            TextView empty=text(
+                    "点击右上角“＋ 添加 APP”",
+                    15
+            );
+
+            empty.setGravity(Gravity.CENTER);
+
+            appGrid.addView(
+                    empty,
+                    new LinearLayout.LayoutParams(
+                            dp(260),
+                            dp(90)
+                    )
+            );
+        }
+    }
+
+    void deleteApp(AppItem item){
+
+        new AlertDialog.Builder(this)
+                .setTitle(item.name)
+                .setMessage("删除这个 APP 快捷方式？")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("删除",(d,w)->{
+
+                    apps.remove(item);
+
+                    if(item.pkg.equals(selectedPackage)){
+                        selectedPackage=null;
+                        selectedName=null;
+                    }
+
+                    saveApps();
+                    refresh();
+                })
+                .show();
     }
 
     void chooseApp(){
-        PackageManager pm=getPackageManager();List<ApplicationInfo> list=new ArrayList<>();
-        for(ApplicationInfo a:pm.getInstalledApplications(128))if(!a.packageName.equals(getPackageName())&&pm.getLaunchIntentForPackage(a.packageName)!=null)list.add(a);
-        Collections.sort(list,(a,b)->pm.getApplicationLabel(a).toString().compareToIgnoreCase(pm.getApplicationLabel(b).toString()));
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);EditText search=field("搜索 APP","");box.addView(search,new LinearLayout.LayoutParams(-1,dp(52)));
-        LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);ScrollView sv=new ScrollView(this);sv.addView(rows);box.addView(sv,new LinearLayout.LayoutParams(-1,dp(430)));
-        AlertDialog d=new AlertDialog.Builder(this).setTitle("添加 APP").setView(box).setNegativeButton("关闭",null).create();
-        Runnable refresh=()->{rows.removeAllViews();String q=search.getText().toString().toLowerCase();int n=0;for(ApplicationInfo a:list){String name=pm.getApplicationLabel(a).toString();if(!q.isEmpty()&&!name.toLowerCase().contains(q))continue;Button b=bt(name);b.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);b.setOnClickListener(v->{boolean exists=false;for(AppItem x:apps)if(x.pkg.equals(a.packageName))exists=true;if(!exists)apps.add(new AppItem(a.packageName,name));saveApps();selectedPkg=a.packageName;selectedName=name;refresh();d.dismiss();});rows.addView(b,new LinearLayout.LayoutParams(-1,dp(48)));if(++n>=30)break;}};
-        search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int c){}public void onTextChanged(CharSequence s,int a,int b,int c){refresh.run();}public void afterTextChanged(android.text.Editable e){}});refresh.run();d.show();
+
+        PackageManager pm=getPackageManager();
+        ArrayList<ApplicationInfo> list=new ArrayList<>();
+
+        for(ApplicationInfo ai:
+                pm.getInstalledApplications(
+                        PackageManager.GET_META_DATA)){
+
+            if(!ai.packageName.equals(getPackageName())
+                    && pm.getLaunchIntentForPackage(
+                            ai.packageName)!=null){
+
+                list.add(ai);
+            }
+        }
+
+        Collections.sort(
+                list,
+                (a,b)->pm.getApplicationLabel(a)
+                        .toString()
+                        .compareToIgnoreCase(
+                                pm.getApplicationLabel(b)
+                                        .toString()
+                        )
+        );
+
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+
+        EditText search=field("搜索 APP","");
+
+        box.addView(
+                search,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        dp(50)
+                )
+        );
+
+        LinearLayout rows=new LinearLayout(this);
+        rows.setOrientation(LinearLayout.VERTICAL);
+
+        ScrollView scroll=new ScrollView(this);
+        scroll.addView(rows);
+
+        box.addView(
+                scroll,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        dp(430)
+                )
+        );
+
+        AlertDialog dialog=
+                new AlertDialog.Builder(this)
+                        .setTitle("添加 APP")
+                        .setView(box)
+                        .setNegativeButton("关闭",null)
+                        .create();
+
+        Runnable refreshList=()->{
+
+            rows.removeAllViews();
+
+            String q=search.getText()
+                    .toString()
+                    .trim()
+                    .toLowerCase();
+
+            int count=0;
+
+            for(ApplicationInfo ai:list){
+
+                String name=pm
+                        .getApplicationLabel(ai)
+                        .toString();
+
+                if(!q.isEmpty()
+                        && !name.toLowerCase()
+                                .contains(q))
+                    continue;
+
+                Button b=button(name);
+
+                b.setGravity(
+                        Gravity.LEFT|
+                        Gravity.CENTER_VERTICAL
+                );
+
+                b.setOnClickListener(v->{
+
+                    boolean exists=false;
+
+                    for(AppItem a:apps){
+                        if(a.pkg.equals(ai.packageName)){
+                            exists=true;
+                            break;
+                        }
+                    }
+
+                    if(!exists){
+                        apps.add(
+                                new AppItem(
+                                        ai.packageName,
+                                        name
+                                )
+                        );
+                        saveApps();
+                    }
+
+                    selectedPackage=ai.packageName;
+                    selectedName=name;
+
+                    refresh();
+                    dialog.dismiss();
+                });
+
+                rows.addView(
+                        b,
+                        new LinearLayout.LayoutParams(
+                                -1,
+                                dp(48)
+                        )
+                );
+
+                if(++count>=40)
+                    break;
+            }
+        };
+
+        search.addTextChangedListener(
+                new android.text.TextWatcher(){
+
+                    public void beforeTextChanged(
+                            CharSequence s,
+                            int a,
+                            int b,
+                            int c){}
+
+                    public void onTextChanged(
+                            CharSequence s,
+                            int a,
+                            int b,
+                            int c){
+                        refreshList.run();
+                    }
+
+                    public void afterTextChanged(
+                            android.text.Editable e){}
+                }
+        );
+
+        refreshList.run();
+        dialog.show();
     }
 
-    void settings(){
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);EditText top=field("顶部空白 px",String.valueOf(topSafe)),bot=field("底部空白 px",String.valueOf(bottomSafe));box.addView(top);box.addView(bot);
-        new AlertDialog.Builder(this).setTitle("车机上下安全区域").setMessage("用于避开顶部状态栏和底部系统按钮。").setView(box).setNegativeButton("取消",null).setPositiveButton("保存",(d,w)->{topSafe=Math.max(0,num(top,0));bottomSafe=Math.max(0,num(bot,0));sp.edit().putInt("topSafe",topSafe).putInt("bottomSafe",bottomSafe).apply();refresh();}).show();
+    void showSettings(){
+
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+
+        EditText dpi=field(
+                "容器 DPI",
+                String.valueOf(containerDpi)
+        );
+
+        EditText top=field(
+                "容器顶部空白 px",
+                String.valueOf(topBlank)
+        );
+
+        EditText bottom=field(
+                "容器底部空白 px",
+                String.valueOf(bottomBlank)
+        );
+
+        box.addView(dpi);
+        box.addView(top);
+        box.addView(bottom);
+
+        TextView hint=text(
+                "当前单个区域：2032 × 960\n"+
+                "这里设置的是“APP窗口容器”自己的 DPI 和上下空白。"+
+                "\n不会改变被添加 APP 的窗口位置。",
+                12
+        );
+
+        hint.setPadding(
+                dp(4),dp(8),dp(4),dp(4)
+        );
+
+        box.addView(hint);
+
+        new AlertDialog.Builder(this)
+                .setTitle("容器设置")
+                .setView(box)
+                .setNegativeButton("取消",null)
+                .setPositiveButton("保存",(d,w)->{
+
+                    containerDpi=Math.max(
+                            1,
+                            number(dpi,160)
+                    );
+
+                    topBlank=Math.max(
+                            0,
+                            number(top,0)
+                    );
+
+                    bottomBlank=Math.max(
+                            0,
+                            number(bottom,0)
+                    );
+
+                    prefs.edit()
+                            .putInt(
+                                    "containerDpi",
+                                    containerDpi
+                            )
+                            .putInt(
+                                    "topBlank",
+                                    topBlank
+                            )
+                            .putInt(
+                                    "bottomBlank",
+                                    bottomBlank
+                            )
+                            .apply();
+
+                    refresh();
+                })
+                .show();
     }
 
-    void presetMenu(int i){new AlertDialog.Builder(this).setTitle(presets.get(i).name).setItems(new String[]{"编辑预设","删除预设"},(d,w)->{if(w==0)editPreset(i);else{if(presets.size()==1){Toast.makeText(this,"至少保留一个预设",0).show();return;}presets.remove(i);savePresets();refresh();}}).show();}
-    void editPreset(int i){
-        Preset old=i>=0?presets.get(i):new Preset("",0,topSafe,2032,Math.max(1,960-topSafe-bottomSafe),160);
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
-        EditText name=field("预设名称",old.name),x=field("X 左上",String.valueOf(old.x)),y=field("Y 左上",String.valueOf(old.y)),ww=field("窗口宽度",String.valueOf(old.w)),hh=field("窗口高度",String.valueOf(old.h)),dpi=field("APP DPI",String.valueOf(old.dpi));
-        box.addView(name);box.addView(x);box.addView(y);box.addView(ww);box.addView(hh);box.addView(dpi);
-        new AlertDialog.Builder(this).setTitle(i>=0?"编辑窗口预设":"新建窗口预设").setView(box).setNegativeButton("取消",null).setPositiveButton("保存",(d,w)->{
-            String n=name.getText().toString().trim();if(n.isEmpty()){Toast.makeText(this,"请输入预设名称",0).show();return;}
-            Preset p=new Preset(n,num(x,0),num(y,topSafe),Math.max(1,num(ww,2032)),Math.max(1,num(hh,860)),Math.max(1,num(dpi,160)));
-            if(i>=0)presets.set(i,p);else presets.add(p);savePresets();refresh();
-        }).show();
+    void presetMenu(int index){
+
+        Preset p=presets.get(index);
+
+        new AlertDialog.Builder(this)
+                .setTitle(p.name)
+                .setItems(
+                        new String[]{
+                                "编辑预设",
+                                "删除预设"
+                        },
+                        (d,w)->{
+
+                            if(w==0){
+                                editPreset(index);
+                            }else{
+
+                                if(presets.size()<=1){
+                                    Toast.makeText(
+                                            this,
+                                            "至少保留一个预设",
+                                            Toast.LENGTH_SHORT
+                                    ).show();
+                                    return;
+                                }
+
+                                presets.remove(index);
+                                savePresets();
+                                refresh();
+                            }
+                        }
+                )
+                .show();
     }
 
-    void launch(Preset p){
-        Intent in=getPackageManager().getLaunchIntentForPackage(selectedPkg);if(in==null){Toast.makeText(this,"无法启动 APP",0).show();return;}
-        ActivityOptions o=ActivityOptions.makeBasic();o.setLaunchBounds(p.bounds());
-        status.setText("启动："+selectedName+"\n预设："+p.name+"\nX="+p.x+" Y="+p.y+"\n"+p.w+"×"+p.h+"   DPI="+p.dpi);
-        try{startActivity(in,o.toBundle());}catch(Exception e){status.setText(status.getText()+"\n启动异常："+e.getMessage());try{startActivity(in);}catch(Exception ignored){}}
+    void editPreset(int index){
+
+        Preset old;
+
+        if(index>=0){
+            old=presets.get(index);
+        }else{
+            old=new Preset(
+                    "",
+                    0,
+                    0,
+                    AREA_WIDTH,
+                    AREA_HEIGHT,
+                    containerDpi
+            );
+        }
+
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+
+        EditText name=field(
+                "预设名称",
+                old.name
+        );
+
+        EditText x=field(
+                "X 左上位置",
+                String.valueOf(old.x)
+        );
+
+        EditText y=field(
+                "Y 上下位置",
+                String.valueOf(old.y)
+        );
+
+        EditText width=field(
+                "窗口宽度",
+                String.valueOf(old.w)
+        );
+
+        EditText height=field(
+                "窗口高度",
+                String.valueOf(old.h)
+        );
+
+        EditText dpi=field(
+                "APP DPI",
+                String.valueOf(old.dpi)
+        );
+
+        box.addView(name);
+        box.addView(x);
+        box.addView(y);
+        box.addView(width);
+        box.addView(height);
+        box.addView(dpi);
+
+        TextView hint=text(
+                "默认单区域大小：2032 × 960\n"+
+                "X/Y 为 APP 窗口左上角位置。",
+                12
+        );
+
+        box.addView(hint);
+
+        new AlertDialog.Builder(this)
+                .setTitle(
+                        index>=0
+                                ?"编辑窗口预设"
+                                :"新建窗口预设"
+                )
+                .setView(box)
+                .setNegativeButton("取消",null)
+                .setPositiveButton("保存",(d,w)->{
+
+                    String n=name.getText()
+                            .toString()
+                            .trim();
+
+                    if(n.isEmpty()){
+                        Toast.makeText(
+                                this,
+                                "请输入预设名称",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                        return;
+                    }
+
+                    Preset p=new Preset(
+                            n,
+                            number(x,0),
+                            number(y,0),
+                            Math.max(
+                                    1,
+                                    number(width,AREA_WIDTH)
+                            ),
+                            Math.max(
+                                    1,
+                                    number(height,AREA_HEIGHT)
+                            ),
+                            Math.max(
+                                    1,
+                                    number(dpi,containerDpi)
+                            )
+                    );
+
+                    if(index>=0)
+                        presets.set(index,p);
+                    else
+                        presets.add(p);
+
+                    savePresets();
+                    refresh();
+                })
+                .show();
+    }
+
+    void launchApp(Preset p){
+
+        Intent intent=
+                getPackageManager()
+                        .getLaunchIntentForPackage(
+                                selectedPackage
+                        );
+
+        if(intent==null){
+            Toast.makeText(
+                    this,
+                    "无法启动 APP",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        ActivityOptions options=
+                ActivityOptions.makeBasic();
+
+        options.setLaunchBounds(
+                new android.graphics.Rect(
+                        p.x,
+                        p.y,
+                        p.x+p.w,
+                        p.y+p.h
+                )
+        );
+
+        info.setText(
+                "启动："+selectedName+
+                "\n预设："+p.name+
+                "   "+p.w+" × "+p.h+
+                "   DPI "+p.dpi
+        );
+
+        try{
+            startActivity(
+                    intent,
+                    options.toBundle()
+            );
+        }catch(Exception e){
+
+            info.setText(
+                    "启动失败："+e.getMessage()
+            );
+
+            try{
+                startActivity(intent);
+            }catch(Exception ignored){}
+        }
     }
 }
